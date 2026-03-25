@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCHOOL ATTENDANCE REPORTS - Fedrick MB</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-database-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+
+    <style>
+        :root { --primary: #1a237e; --accent: #00c853; --danger: #d50000; --warning: #fbc02d; --bg: #f0f2f5; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); margin: 0; padding: 0; color: #333; }
+        
+        header { background: var(--primary); color: white; padding: 20px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+        header h1 { margin: 0; letter-spacing: 2px; font-size: 22px; }
+
+        .container { max-width: 1100px; margin: 20px auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08); padding: 20px; }
+        
+        .nav-tabs { display: flex; border-bottom: 2px solid #eee; margin-bottom: 20px; }
+        .tab { padding: 15px 25px; cursor: pointer; font-weight: bold; color: #666; flex: 1; text-align: center; transition: 0.3s; }
+        .tab.active { color: var(--primary); border-bottom: 3px solid var(--primary); background: #f8f9ff; }
+
+        .section { display: none; }
+        .active-section { display: block; }
+
+        .card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; background: #fafafa; }
+        input, select, button { padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 6px; font-size: 15px; width: 100%; box-sizing: border-box; }
+        button { background: var(--primary); color: white; border: none; cursor: pointer; font-weight: bold; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 12px; text-align: left; border: 1px solid #eee; }
+        th { background: #f5f5f5; color: #555; }
+        
+        .footer { text-align: center; padding: 20px; font-size: 12px; color: #777; margin-top: 20px; }
+        
+        .btn-p { background: var(--accent); color: white; width: 40px !important; margin-right: 5px; }
+        .btn-a { background: var(--danger); color: white; width: 40px !important; margin-right: 5px; }
+        .btn-r { background: var(--warning); color: #333; width: 40px !important; }
+
+        .status-Present { color: var(--accent); font-weight: bold; }
+        .status-Absent { color: var(--danger); font-weight: bold; }
+        .status-Permission { color: #f57f17; font-weight: bold; }
+
+        @media print {
+            .nav-tabs, button, input, .no-print, header, .footer { display: none !important; }
+            body { background: white; }
+            .container { box-shadow: none; border: none; width: 100%; margin: 0; padding: 0; }
+            .section { display: none; }
+            #report-sec { display: block !important; }
+            #report-header { display: block !important; margin-top: 20px; text-transform: uppercase; }
+        }
+    </style>
+</head>
+<body>
+
+<header class="no-print">
+    <h1>SCHOOL ATTENDANCE REPORTS</h1>
+</header>
+
+<div class="container">
+    <div class="nav-tabs" id="main-nav">
+        <div class="tab active" onclick="switchTab('admin-sec', event)">ADMIN PANEL</div>
+        <div class="tab" onclick="switchTab('teacher-sec', event)">TEACHER ENTRY</div>
+        <div class="tab" onclick="switchTab('report-sec', event)">REPORTS & PRINT</div>
+    </div>
+
+    <div id="admin-sec" class="section active-section">
+        <div class="card">
+            <h3>Import Students (CSV)</h3>
+            <input type="file" id="csv-file" accept=".csv">
+            <button onclick="handleFileUpload()" style="background:var(--accent)">Upload CSV File</button>
+        </div>
+        <div class="card">
+            <h3>Add Individual Student</h3>
+            <input type="text" id="adm-name" placeholder="Full Name">
+            <input type="text" id="adm-id" placeholder="Student ID (e.g. 001)">
+            <input type="text" id="adm-class" placeholder="Class (e.g. Form 1A)">
+            <button onclick="addSingleStudent()">Save Student</button>
+        </div>
+        <div class="card">
+            <h3>Teacher Link Generator</h3>
+            <input type="text" id="target-class" placeholder="Class Name (e.g. Form 1A)">
+            <button onclick="createShareLink()" style="background:#34495e">Generate Shared Link</button>
+            <div id="link-display" style="margin-top:10px; font-weight: bold; color: var(--primary);"></div>
+        </div>
+    </div>
+
+    <div id="teacher-sec" class="section">
+        <h2 id="teacher-title">Class Attendance</h2>
+        <p id="today-date-display" style="font-weight: bold; color: var(--primary);"></p>
+        <div id="class-selector-div">
+            <input type="text" id="t-class-search" placeholder="Enter Class (e.g. Form 1A)">
+            <button onclick="loadClassForTeacher()">Load List</button>
+        </div>
+        <table id="attendance-list-table">
+            <thead><tr><th>Student Name</th><th>Action (P/A/R)</th></tr></thead>
+            <tbody id="attendance-body"></tbody>
+        </table>
+        <button id="submit-btn" style="display:none; margin-top:20px; background:var(--accent)" onclick="submitAttendance()">Submit Today's Records</button>
+    </div>
+
+    <div id="report-sec" class="section">
+        <div class="no-print card">
+            <h3>Filter & Search Report</h3>
+            <label>Choose Date:</label>
+            <input type="date" id="report-date-filter">
+            <input type="text" id="report-filter-class" placeholder="Class (e.g. Form 1A) - Optional">
+            <button onclick="loadReports()">Show Report</button>
+            <button onclick="window.print()" style="background:#34495e">Print Report</button>
+        </div>
+        
+        <div id="print-area">
+            <h2 id="report-header" style="text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px;">
+                ATTENDANCE REPORT
+            </h2>
+            <p id="report-meta-info" style="text-align: center; font-weight: bold; font-size: 16px;"></p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Day & Date</th>
+                        <th>Student Name</th>
+                        <th>Class</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="report-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="footer no-print">
+        <p>© 2026 - All Rights Reserved</p>
+        <p><strong>Prepared by Fedrick MB</strong></p>
+    </div>
+</div>
+
+<script>
+    // --- FIREBASE CONFIG ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyA--kofiAZLOYmmA_ajbSbypQPKs38EH2A",
+      authDomain: "attendance-e2a7a.firebaseapp.com",
+      projectId: "attendance-e2a7a",
+      databaseURL: "https://attendance-e2a7a-default-rtdb.firebaseio.com",
+      storageBucket: "attendance-e2a7a.firebasestorage.app",
+      messagingSenderId: "584339618326",
+      appId: "1:584339618326:web:8a90c5659604a743481337"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // Helper: Get Day Name and Formatted Date
+    function getFormattedDate(dateObj = new Date()) {
+        const options = { weekday: 'long' };
+        const dayName = new Intl.DateTimeFormat('en-US', options).format(dateObj);
+        const dateStr = dateObj.toISOString().split('T')[0]; // YYYY-MM-DD
+        return `${dayName}, ${dateStr}`;
+    }
+
+    function switchTab(id, e) {
+        document.querySelectorAll('.section').forEach(s => s.classList.remove('active-section'));
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.getElementById(id).classList.add('active-section');
+        if(e) e.target.classList.add('active');
+        if(id === 'teacher-sec') {
+            document.getElementById('today-date-display').innerText = "Date: " + getFormattedDate();
+        }
+    }
+
+    function addSingleStudent() {
+        const name = document.getElementById('adm-name').value;
+        const id = document.getElementById('adm-id').value;
+        const cls = document.getElementById('adm-class').value;
+        if(name && id && cls) {
+            db.ref('students/' + id).set({ name, class: cls }).then(() => {
+                alert("Saved!");
+                document.getElementById('adm-name').value = '';
+                document.getElementById('adm-id').value = '';
+            });
+        }
+    }
+
+    function handleFileUpload() {
+        const file = document.getElementById('csv-file').files[0];
+        if(!file) return alert("Select file");
+        Papa.parse(file, {
+            complete: function(results) {
+                results.data.forEach(row => {
+                    if(row[1]) db.ref('students/' + row[1]).set({ name: row[0], class: row[2] });
+                });
+                alert("Import Success!");
+            }
+        });
+    }
+
+    function createShareLink() {
+        const cls = document.getElementById('target-class').value;
+        const baseUrl = window.location.href.split('?')[0];
+        const fullLink = `${baseUrl}?class=${encodeURIComponent(cls)}`;
+        document.getElementById('link-display').innerHTML = `Link: <a href="${fullLink}" target="_blank">${fullLink}</a>`;
+    }
+
+    let tempAttendance = {};
+    let studentNames = {};
+
+    function loadClassForTeacher(forcedClass = null) {
+        const cls = forcedClass || document.getElementById('t-class-search').value;
+        if(!cls) return;
+        db.ref('students').orderByChild('class').equalTo(cls).once('value', snapshot => {
+            const body = document.getElementById('attendance-body');
+            body.innerHTML = '';
+            snapshot.forEach(child => {
+                studentNames[child.key] = child.val().name;
+                body.innerHTML += `<tr>
+                    <td>${child.val().name}</td>
+                    <td>
+                        <button class="btn-p" onclick="mark('${child.key}','Present',this)">P</button>
+                        <button class="btn-a" onclick="mark('${child.key}','Absent',this)">A</button>
+                        <button class="btn-r" onclick="mark('${child.key}','Permission',this)">R</button>
+                    </td>
+                </tr>`;
+            });
+            document.getElementById('submit-btn').style.display = 'block';
+        });
+    }
+
+    function mark(id, status, btn) {
+        tempAttendance[id] = status;
+        btn.parentElement.querySelectorAll('button').forEach(b => b.style.opacity = '0.4');
+        btn.style.opacity = '1';
+    }
+
+    function submitAttendance() {
+        const today = new Date();
+        const dateKey = today.toISOString().split('T')[0]; // Format: 2026-03-25
+        const dayLabel = getFormattedDate(today);
+        const updates = {};
+        const cls = document.getElementById('t-class-search').value || new URLSearchParams(window.location.search).get('class');
+        
+        if(Object.keys(tempAttendance).length === 0) return alert("Mark at least one student");
+
+        for(let id in tempAttendance) {
+            updates[`/attendance/${dateKey}/${id}`] = { 
+                status: tempAttendance[id], 
+                class: cls,
+                name: studentNames[id] || "Unknown",
+                fullDateLabel: dayLabel
+            };
+        }
+        db.ref().update(updates).then(() => { 
+            alert("Attendance Submitted for " + dayLabel); 
+            location.reload(); 
+        });
+    }
+
+    function loadReports() {
+        const selectedDate = document.getElementById('report-date-filter').value;
+        const filterClass = document.getElementById('report-filter-class').value;
+        
+        if(!selectedDate) return alert("Please select a date first");
+
+        document.getElementById('report-meta-info').innerText = `Date: ${selectedDate} | Class: ${filterClass || "All"}`;
+        
+        // Tunavuta data za tarehe ile tu iliyochaguliwa
+        db.ref('attendance/' + selectedDate).once('value', snapshot => {
+            const body = document.getElementById('report-body');
+            body.innerHTML = '';
+            
+            if(!snapshot.exists()) {
+                body.innerHTML = '<tr><td colspan="4" style="text-align:center">No records found for this date.</td></tr>';
+                return;
+            }
+
+            snapshot.forEach(stdSnap => {
+                const data = stdSnap.val();
+                if(!filterClass || data.class === filterClass) {
+                    body.innerHTML += `<tr>
+                        <td>${data.fullDateLabel || selectedDate}</td>
+                        <td>${data.name || "---"}</td>
+                        <td>${data.class}</td>
+                        <td class="status-${data.status}">${data.status}</td>
+                    </tr>`;
+                }
+            });
+        });
+    }
+
+    window.onload = () => {
+        const params = new URLSearchParams(window.location.search);
+        const sharedClass = params.get('class');
+        
+        // Set default date in reporter to today
+        document.getElementById('report-date-filter').value = new Date().toISOString().split('T')[0];
+
+        if(sharedClass) {
+            document.getElementById('main-nav').style.display = 'none';
+            document.getElementById('class-selector-div').style.display = 'none';
+            switchTab('teacher-sec');
+            document.getElementById('teacher-title').innerText = "Attendance Registry: " + sharedClass;
+            loadClassForTeacher(sharedClass);
+        }
+    };
+</script>
+
+</body>
+</html>
