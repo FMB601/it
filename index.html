@@ -18,8 +18,8 @@
 
         .container { max-width: 1100px; margin: 20px auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08); padding: 20px; }
         
-        .nav-tabs { display: flex; border-bottom: 2px solid #eee; margin-bottom: 20px; }
-        .tab { padding: 15px 25px; cursor: pointer; font-weight: bold; color: #666; flex: 1; text-align: center; transition: 0.3s; }
+        .nav-tabs { display: flex; border-bottom: 2px solid #eee; margin-bottom: 20px; overflow-x: auto; }
+        .tab { padding: 15px 25px; cursor: pointer; font-weight: bold; color: #666; flex: 1; text-align: center; transition: 0.3s; white-space: nowrap; }
         .tab.active { color: var(--primary); border-bottom: 3px solid var(--primary); background: #f8f9ff; }
 
         .section { display: none; }
@@ -38,6 +38,8 @@
         .btn-p { background: var(--accent); color: white; width: 40px !important; margin-right: 5px; }
         .btn-a { background: var(--danger); color: white; width: 40px !important; margin-right: 5px; }
         .btn-r { background: var(--warning); color: #333; width: 40px !important; }
+        .btn-edit { background: #3498db; width: auto !important; padding: 5px 10px; font-size: 12px; margin-right: 5px; }
+        .btn-delete { background: var(--danger); width: auto !important; padding: 5px 10px; font-size: 12px; }
 
         .status-Present { color: var(--accent); font-weight: bold; }
         .status-Absent { color: var(--danger); font-weight: bold; }
@@ -62,6 +64,7 @@
 <div class="container">
     <div class="nav-tabs" id="main-nav">
         <div class="tab active" onclick="switchTab('admin-sec', event)">ADMIN PANEL</div>
+        <div class="tab" onclick="switchTab('db-sec', event)">STUDENT DATABASE</div>
         <div class="tab" onclick="switchTab('teacher-sec', event)">TEACHER ENTRY</div>
         <div class="tab" onclick="switchTab('report-sec', event)">REPORTS & PRINT</div>
     </div>
@@ -73,11 +76,13 @@
             <button onclick="handleFileUpload()" style="background:var(--accent)">Upload CSV File</button>
         </div>
         <div class="card">
-            <h3>Add Individual Student</h3>
+            <h3 id="add-edit-title">Add Individual Student</h3>
+            <input type="hidden" id="edit-mode-id">
             <input type="text" id="adm-name" placeholder="Full Name">
             <input type="text" id="adm-id" placeholder="Student ID (e.g. 001)">
             <input type="text" id="adm-class" placeholder="Class (e.g. Form 1A)">
-            <button onclick="addSingleStudent()">Save Student</button>
+            <button id="save-btn" onclick="addSingleStudent()">Save Student</button>
+            <button id="cancel-edit" style="display:none; background:#7f8c8d; margin-top: 5px;" onclick="cancelEdit()">Cancel Edit</button>
         </div>
         <div class="card">
             <h3>Teacher Link Generator</h3>
@@ -85,6 +90,25 @@
             <button onclick="createShareLink()" style="background:#34495e">Generate Shared Link</button>
             <div id="link-display" style="margin-top:10px; font-weight: bold; color: var(--primary);"></div>
         </div>
+    </div>
+
+    <div id="db-sec" class="section">
+        <div class="card">
+            <h3>Student Database Management</h3>
+            <input type="text" id="db-class-filter" placeholder="Filter by Class (e.g. Form 1A)">
+            <button onclick="loadStudentDatabase()">View/Refresh Records</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Class</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="db-body"></tbody>
+        </table>
     </div>
 
     <div id="teacher-sec" class="section">
@@ -151,11 +175,10 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // Helper: Get Day Name and Formatted Date
     function getFormattedDate(dateObj = new Date()) {
         const options = { weekday: 'long' };
         const dayName = new Intl.DateTimeFormat('en-US', options).format(dateObj);
-        const dateStr = dateObj.toISOString().split('T')[0]; // YYYY-MM-DD
+        const dateStr = dateObj.toISOString().split('T')[0];
         return `${dayName}, ${dateStr}`;
     }
 
@@ -164,24 +187,81 @@
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.getElementById(id).classList.add('active-section');
         if(e) e.target.classList.add('active');
-        if(id === 'teacher-sec') {
-            document.getElementById('today-date-display').innerText = "Date: " + getFormattedDate();
-        }
+        if(id === 'teacher-sec') document.getElementById('today-date-display').innerText = "Date: " + getFormattedDate();
+        if(id === 'db-sec') loadStudentDatabase();
     }
 
+    // --- STUDENT MANAGEMENT (ADD / EDIT / DELETE) ---
     function addSingleStudent() {
         const name = document.getElementById('adm-name').value;
         const id = document.getElementById('adm-id').value;
         const cls = document.getElementById('adm-class').value;
+        const editId = document.getElementById('edit-mode-id').value;
+
         if(name && id && cls) {
+            // Ikiwa tunahariri na tumebadilisha ID, lazima tufute ya zamani kwanza
+            if(editId && editId !== id) {
+                db.ref('students/' + editId).remove();
+            }
+            
             db.ref('students/' + id).set({ name, class: cls }).then(() => {
-                alert("Saved!");
-                document.getElementById('adm-name').value = '';
-                document.getElementById('adm-id').value = '';
+                alert("Success!");
+                cancelEdit();
+                if(document.getElementById('db-sec').classList.contains('active-section')) loadStudentDatabase();
             });
         }
     }
 
+    function loadStudentDatabase() {
+        const filter = document.getElementById('db-class-filter').value.toLowerCase();
+        db.ref('students').once('value', snapshot => {
+            const body = document.getElementById('db-body');
+            body.innerHTML = '';
+            snapshot.forEach(child => {
+                const data = child.val();
+                if(!filter || data.class.toLowerCase().includes(filter)) {
+                    body.innerHTML += `<tr>
+                        <td>${child.key}</td>
+                        <td>${data.name}</td>
+                        <td>${data.class}</td>
+                        <td>
+                            <button class="btn-edit" onclick="startEdit('${child.key}', '${data.name}', '${data.class}')">Edit</button>
+                            <button class="btn-delete" onclick="deleteStudent('${child.key}')">Remove</button>
+                        </td>
+                    </tr>`;
+                }
+            });
+        });
+    }
+
+    function startEdit(id, name, cls) {
+        switchTab('admin-sec');
+        document.getElementById('add-edit-title').innerText = "Edit Student";
+        document.getElementById('edit-mode-id').value = id;
+        document.getElementById('adm-id').value = id;
+        document.getElementById('adm-name').value = name;
+        document.getElementById('adm-class').value = cls;
+        document.getElementById('save-btn').innerText = "Update Records";
+        document.getElementById('cancel-edit').style.display = 'block';
+    }
+
+    function cancelEdit() {
+        document.getElementById('add-edit-title').innerText = "Add Individual Student";
+        document.getElementById('edit-mode-id').value = '';
+        document.getElementById('adm-id').value = '';
+        document.getElementById('adm-name').value = '';
+        document.getElementById('adm-class').value = '';
+        document.getElementById('save-btn').innerText = "Save Student";
+        document.getElementById('cancel-edit').style.display = 'none';
+    }
+
+    function deleteStudent(id) {
+        if(confirm("Are you sure you want to remove this student?")) {
+            db.ref('students/' + id).remove().then(() => loadStudentDatabase());
+        }
+    }
+
+    // --- IMPORT / LINK GENERATOR ---
     function handleFileUpload() {
         const file = document.getElementById('csv-file').files[0];
         if(!file) return alert("Select file");
@@ -202,6 +282,7 @@
         document.getElementById('link-display').innerHTML = `Link: <a href="${fullLink}" target="_blank">${fullLink}</a>`;
     }
 
+    // --- TEACHER ENTRY ---
     let tempAttendance = {};
     let studentNames = {};
 
@@ -234,13 +315,11 @@
 
     function submitAttendance() {
         const today = new Date();
-        const dateKey = today.toISOString().split('T')[0]; // Format: 2026-03-25
+        const dateKey = today.toISOString().split('T')[0];
         const dayLabel = getFormattedDate(today);
         const updates = {};
         const cls = document.getElementById('t-class-search').value || new URLSearchParams(window.location.search).get('class');
         
-        if(Object.keys(tempAttendance).length === 0) return alert("Mark at least one student");
-
         for(let id in tempAttendance) {
             updates[`/attendance/${dateKey}/${id}`] = { 
                 status: tempAttendance[id], 
@@ -249,36 +328,30 @@
                 fullDateLabel: dayLabel
             };
         }
-        db.ref().update(updates).then(() => { 
-            alert("Attendance Submitted for " + dayLabel); 
-            location.reload(); 
-        });
+        db.ref().update(updates).then(() => { alert("Success!"); location.reload(); });
     }
 
+    // --- REPORTS ---
     function loadReports() {
         const selectedDate = document.getElementById('report-date-filter').value;
         const filterClass = document.getElementById('report-filter-class').value;
-        
-        if(!selectedDate) return alert("Please select a date first");
+        if(!selectedDate) return alert("Select date");
 
         document.getElementById('report-meta-info').innerText = `Date: ${selectedDate} | Class: ${filterClass || "All"}`;
         
-        // Tunavuta data za tarehe ile tu iliyochaguliwa
         db.ref('attendance/' + selectedDate).once('value', snapshot => {
             const body = document.getElementById('report-body');
             body.innerHTML = '';
-            
             if(!snapshot.exists()) {
-                body.innerHTML = '<tr><td colspan="4" style="text-align:center">No records found for this date.</td></tr>';
+                body.innerHTML = '<tr><td colspan="4" style="text-align:center">No records.</td></tr>';
                 return;
             }
-
             snapshot.forEach(stdSnap => {
                 const data = stdSnap.val();
                 if(!filterClass || data.class === filterClass) {
                     body.innerHTML += `<tr>
                         <td>${data.fullDateLabel || selectedDate}</td>
-                        <td>${data.name || "---"}</td>
+                        <td>${data.name}</td>
                         <td>${data.class}</td>
                         <td class="status-${data.status}">${data.status}</td>
                     </tr>`;
@@ -290,8 +363,6 @@
     window.onload = () => {
         const params = new URLSearchParams(window.location.search);
         const sharedClass = params.get('class');
-        
-        // Set default date in reporter to today
         document.getElementById('report-date-filter').value = new Date().toISOString().split('T')[0];
 
         if(sharedClass) {
@@ -303,6 +374,5 @@
         }
     };
 </script>
-
 </body>
 </html>
