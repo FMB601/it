@@ -27,7 +27,7 @@
 
         .card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; margin-bottom: 20px; background: #fafafa; }
         input, select, button { padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 6px; font-size: 15px; width: 100%; box-sizing: border-box; }
-        button { background: var(--primary); color: white; border: none; cursor: pointer; font-weight: bold; }
+        button { background: var(--primary); color: white; border: none; cursor: pointer; font-weight: bold; transition: all 0.2s ease; }
         
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { padding: 12px; text-align: left; border: 1px solid #eee; }
@@ -35,9 +35,16 @@
         
         .footer { text-align: center; padding: 20px; font-size: 12px; color: #777; margin-top: 20px; }
         
-        .btn-p { background: var(--accent); color: white; width: 40px !important; margin-right: 5px; }
-        .btn-a { background: var(--danger); color: white; width: 40px !important; margin-right: 5px; }
-        .btn-r { background: var(--warning); color: #333; width: 40px !important; }
+        /* Mitindo ya Vitufe vya P / A / R */
+        .btn-p { background: #e8f5e9; color: var(--accent); border: 2px solid var(--accent); width: 45px !important; margin-right: 5px; }
+        .btn-a { background: #ffebee; color: var(--danger); border: 2px solid var(--danger); width: 45px !important; margin-right: 5px; }
+        .btn-r { background: #fffde7; color: #f57f17; border: 2px solid var(--warning); width: 45px !important; }
+        
+        /* Mitindo pale vinapobonyezwa (Active States) */
+        .btn-p.selected { background: var(--accent) !important; color: white !important; }
+        .btn-a.selected { background: var(--danger) !important; color: white !important; }
+        .btn-r.selected { background: var(--warning) !important; color: #333 !important; }
+
         .btn-edit { background: #3498db; width: auto !important; padding: 5px 10px; font-size: 12px; margin-right: 5px; }
         .btn-delete { background: var(--danger); width: auto !important; padding: 5px 10px; font-size: 12px; }
 
@@ -69,6 +76,7 @@
         <div class="tab" onclick="switchTab('report-sec', event)">REPORTS & PRINT</div>
     </div>
 
+    <!-- ADMIN SECTION -->
     <div id="admin-sec" class="section active-section">
         <div class="card">
             <h3>Import Students (CSV)</h3>
@@ -92,6 +100,7 @@
         </div>
     </div>
 
+    <!-- DATABASE SECTION -->
     <div id="db-sec" class="section">
         <div class="card">
             <h3>Student Database Management</h3>
@@ -111,6 +120,7 @@
         </table>
     </div>
 
+    <!-- TEACHER SECTION -->
     <div id="teacher-sec" class="section">
         <h2 id="teacher-title">Class Attendance</h2>
         <p id="today-date-display" style="font-weight: bold; color: var(--primary);"></p>
@@ -125,6 +135,7 @@
         <button id="submit-btn" style="display:none; margin-top:20px; background:var(--accent)" onclick="submitAttendance()">Submit Today's Records</button>
     </div>
 
+    <!-- REPORT SECTION -->
     <div id="report-sec" class="section">
         <div class="no-print card">
             <h3>Filter & Search Report</h3>
@@ -175,6 +186,8 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
+    let currentSelectedClass = ""; // Inatunza darasa lililofunguliwa sasa hivi
+
     function getFormattedDate(dateObj = new Date()) {
         const options = { weekday: 'long' };
         const dayName = new Intl.DateTimeFormat('en-US', options).format(dateObj);
@@ -186,7 +199,16 @@
         document.querySelectorAll('.section').forEach(s => s.classList.remove('active-section'));
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.getElementById(id).classList.add('active-section');
+        
         if(e) e.target.classList.add('active');
+        else {
+            // Kama tab imebadilishwa na mfumo (sio kubonyezwa), weka active kwenye tab husika
+            document.querySelectorAll('.tab').forEach(t => {
+                if(t.innerText.includes("TEACHER") && id === 'teacher-sec') t.classList.add('active');
+                if(t.innerText.includes("ADMIN") && id === 'admin-sec') t.classList.add('active');
+            });
+        }
+        
         if(id === 'teacher-sec') document.getElementById('today-date-display').innerText = "Date: " + getFormattedDate();
         if(id === 'db-sec') loadStudentDatabase();
     }
@@ -199,7 +221,6 @@
         const editId = document.getElementById('edit-mode-id').value;
 
         if(name && id && cls) {
-            // Ikiwa tunahariri na tumebadilisha ID, lazima tufute ya zamani kwanza
             if(editId && editId !== id) {
                 db.ref('students/' + editId).remove();
             }
@@ -277,6 +298,7 @@
 
     function createShareLink() {
         const cls = document.getElementById('target-class').value;
+        if(!cls) return alert("Tafadhali ingiza jina la darasa");
         const baseUrl = window.location.href.split('?')[0];
         const fullLink = `${baseUrl}?class=${encodeURIComponent(cls)}`;
         document.getElementById('link-display').innerHTML = `Link: <a href="${fullLink}" target="_blank">${fullLink}</a>`;
@@ -289,9 +311,18 @@
     function loadClassForTeacher(forcedClass = null) {
         const cls = forcedClass || document.getElementById('t-class-search').value;
         if(!cls) return;
+        currentSelectedClass = cls; // Tunatunza darasa lililochaguliwa hapa
+
         db.ref('students').orderByChild('class').equalTo(cls).once('value', snapshot => {
             const body = document.getElementById('attendance-body');
             body.innerHTML = '';
+            
+            if(!snapshot.exists()){
+                body.innerHTML = '<tr><td colspan="2" style="text-align:center; color:red;">No students found in this class.</td></tr>';
+                document.getElementById('submit-btn').style.display = 'none';
+                return;
+            }
+
             snapshot.forEach(child => {
                 studentNames[child.key] = child.val().name;
                 body.innerHTML += `<tr>
@@ -309,26 +340,36 @@
 
     function mark(id, status, btn) {
         tempAttendance[id] = status;
-        btn.parentElement.querySelectorAll('button').forEach(b => b.style.opacity = '0.4');
-        btn.style.opacity = '1';
+        // Ondoa kwanza class ya 'selected' kwenye vitufe vyote vya mstari huo
+        btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('selected'));
+        // Weka class ya 'selected' kwenye kile tu kilichobonyezwa
+        btn.classList.add('selected');
     }
 
     function submitAttendance() {
+        if(Object.keys(tempAttendance).length === 0) {
+            return alert("Tafadhali weka mahudhurio kwa wanafunzi kwanza kabla ya kusubmit.");
+        }
+
         const today = new Date();
         const dateKey = today.toISOString().split('T')[0];
         const dayLabel = getFormattedDate(today);
         const updates = {};
-        const cls = document.getElementById('t-class-search').value || new URLSearchParams(window.location.search).get('class');
         
         for(let id in tempAttendance) {
             updates[`/attendance/${dateKey}/${id}`] = { 
                 status: tempAttendance[id], 
-                class: cls,
+                class: currentSelectedClass,
                 name: studentNames[id] || "Unknown",
                 fullDateLabel: dayLabel
             };
         }
-        db.ref().update(updates).then(() => { alert("Success!"); location.reload(); });
+        db.ref().update(updates).then(() => { 
+            alert("Attendance Submitted Successfully!"); 
+            location.reload(); 
+        }).catch(err => {
+            alert("Error saving data: " + err.message);
+        });
     }
 
     // --- REPORTS ---
@@ -343,16 +384,16 @@
             const body = document.getElementById('report-body');
             body.innerHTML = '';
             if(!snapshot.exists()) {
-                body.innerHTML = '<tr><td colspan="4" style="text-align:center">No records.</td></tr>';
+                body.innerHTML = '<tr><td colspan="4" style="text-align:center">No records found for this date.</td></tr>';
                 return;
             }
             snapshot.forEach(stdSnap => {
                 const data = stdSnap.val();
-                if(!filterClass || data.class === filterClass) {
+                if(!filterClass || (data.class && data.class.toLowerCase() === filterClass.toLowerCase())) {
                     body.innerHTML += `<tr>
                         <td>${data.fullDateLabel || selectedDate}</td>
                         <td>${data.name}</td>
-                        <td>${data.class}</td>
+                        <td>${data.class || '-'}</td>
                         <td class="status-${data.status}">${data.status}</td>
                     </tr>`;
                 }
