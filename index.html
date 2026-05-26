@@ -7,7 +7,7 @@
     
     <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-database-compat.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 
     <style>
         :root { --primary: #1a237e; --accent: #00c853; --danger: #d50000; --warning: #fbc02d; --bg: #f0f2f5; }
@@ -35,22 +35,30 @@
         
         .footer { text-align: center; padding: 20px; font-size: 12px; color: #777; margin-top: 20px; }
         
-        /* Mitindo ya Vitufe vya P / A / R */
+        /* Attendance Action Buttons */
         .btn-p { background: #e8f5e9; color: var(--accent); border: 2px solid var(--accent); width: 45px !important; margin-right: 5px; }
         .btn-a { background: #ffebee; color: var(--danger); border: 2px solid var(--danger); width: 45px !important; margin-right: 5px; }
         .btn-r { background: #fffde7; color: #f57f17; border: 2px solid var(--warning); width: 45px !important; }
         
-        /* Mitindo pale vinapobonyezwa (Active States) */
         .btn-p.selected { background: var(--accent) !important; color: white !important; }
         .btn-a.selected { background: var(--danger) !important; color: white !important; }
         .btn-r.selected { background: var(--warning) !important; color: #333 !important; }
 
+        .btn-open { background: var(--accent); width: auto !important; padding: 6px 12px; font-size: 13px; margin-right: 5px; }
         .btn-edit { background: #3498db; width: auto !important; padding: 5px 10px; font-size: 12px; margin-right: 5px; }
         .btn-delete { background: var(--danger); width: auto !important; padding: 5px 10px; font-size: 12px; }
 
         .status-Present { color: var(--accent); font-weight: bold; }
         .status-Absent { color: var(--danger); font-weight: bold; }
         .status-Permission { color: #f57f17; font-weight: bold; }
+
+        /* Security Overlay Screen */
+        #auth-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(26, 35, 126, 0.98); z-index: 9999; display: flex; justify-content: center; align-items: center; }
+        .auth-box { background: white; padding: 30px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); text-align: center; }
+        
+        /* Breadcrumbs navigation */
+        .breadcrumbs { padding: 10px; background: #eef2ff; margin-bottom: 15px; border-radius: 4px; font-weight: bold; color: var(--primary); display: none;}
+        .breadcrumbs span { cursor: pointer; text-decoration: underline; margin-right: 5px;}
 
         @media print {
             .nav-tabs, button, input, .no-print, header, .footer { display: none !important; }
@@ -64,6 +72,24 @@
 </head>
 <body>
 
+<div id="auth-overlay">
+    <div class="auth-box" id="setup-box" style="display:none;">
+        <h2 style="color: var(--primary);">System Initial Setup</h2>
+        <p style="font-size:14px; color:#666;">Create your Administrator account credentials below.</p>
+        <input type="text" id="setup-username" placeholder="Create Username">
+        <input type="password" id="setup-password" placeholder="Create Password">
+        <input type="password" id="setup-confirm" placeholder="Confirm Password">
+        <button onclick="handleInitialSetup()" style="background: var(--accent);">Save and Initialize System</button>
+    </div>
+    <div class="auth-box" id="login-box" style="display:none;">
+        <h2 style="color: var(--primary);">Security Verification</h2>
+        <p style="font-size:14px; color:#666;">Enter credentials to access the Attendance System.</p>
+        <input type="text" id="login-username" placeholder="Username">
+        <input type="password" id="login-password" placeholder="Password">
+        <button onclick="handleLogin()">Login to System</button>
+    </div>
+</div>
+
 <header class="no-print">
     <h1>SCHOOL ATTENDANCE REPORTS</h1>
 </header>
@@ -76,56 +102,47 @@
         <div class="tab" onclick="switchTab('report-sec', event)">REPORTS & PRINT</div>
     </div>
 
-    <!-- ADMIN SECTION -->
     <div id="admin-sec" class="section active-section">
-        <div class="card">
-            <h3>Import Students (CSV)</h3>
-            <input type="file" id="csv-file" accept=".csv">
-            <button onclick="handleFileUpload()" style="background:var(--accent)">Upload CSV File</button>
-        </div>
         <div class="card">
             <h3 id="add-edit-title">Add Individual Student</h3>
             <input type="hidden" id="edit-mode-id">
+            <input type="text" id="adm-id" placeholder="Serial No / Student ID (e.g. 001)">
             <input type="text" id="adm-name" placeholder="Full Name">
-            <input type="text" id="adm-id" placeholder="Student ID (e.g. 001)">
-            <input type="text" id="adm-class" placeholder="Class (e.g. Form 1A)">
-            <button id="save-btn" onclick="addSingleStudent()">Save Student</button>
+            <input type="text" id="adm-class" placeholder="Class & Stream (e.g. Form IA, Form One A)">
+            <button id="save-btn" onclick="addSingleStudent()">Save Student Records</button>
             <button id="cancel-edit" style="display:none; background:#7f8c8d; margin-top: 5px;" onclick="cancelEdit()">Cancel Edit</button>
         </div>
         <div class="card">
             <h3>Teacher Link Generator</h3>
-            <input type="text" id="target-class" placeholder="Class Name (e.g. Form 1A)">
-            <button onclick="createShareLink()" style="background:#34495e">Generate Shared Link</button>
+            <input type="text" id="target-class" placeholder="Class Name (e.g. Form IA)">
+            <button onclick="createShareLink()" style="background:#34495e">Generate Shared Registry Link</button>
             <div id="link-display" style="margin-top:10px; font-weight: bold; color: var(--primary);"></div>
+        </div>
+        <div class="card" style="border-top: 4px solid var(--danger);">
+            <h3>System Control: Change Administrative Password</h3>
+            <input type="password" id="chg-old-pass" placeholder="Current Password">
+            <input type="password" id="chg-new-pass" placeholder="New Password">
+            <button onclick="changePassword()" style="background:var(--danger)">Update Account Credentials</button>
         </div>
     </div>
 
-    <!-- DATABASE SECTION -->
     <div id="db-sec" class="section">
         <div class="card">
-            <h3>Student Database Management</h3>
-            <input type="text" id="db-class-filter" placeholder="Filter by Class (e.g. Form 1A)">
-            <button onclick="loadStudentDatabase()">View/Refresh Records</button>
+            <h3>Dynamic Student Data Explorer</h3>
+            <div class="breadcrumbs" id="db-breadcrumbs"></div>
+            <input type="text" id="db-search" placeholder="Search across current view..." oninput="filterCurrentTable()">
         </div>
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Name</th>
-                    <th>Class</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
+        <table id="db-data-table">
+            <thead id="db-header"></thead>
             <tbody id="db-body"></tbody>
         </table>
     </div>
 
-    <!-- TEACHER SECTION -->
     <div id="teacher-sec" class="section">
-        <h2 id="teacher-title">Class Attendance</h2>
+        <h2 id="teacher-title">Class Attendance Registry</h2>
         <p id="today-date-display" style="font-weight: bold; color: var(--primary);"></p>
         <div id="class-selector-div">
-            <input type="text" id="t-class-search" placeholder="Enter Class (e.g. Form 1A)">
+            <input type="text" id="t-class-search" placeholder="Enter Class/Stream (e.g. Form IA or Form One A)">
             <button onclick="loadClassForTeacher()">Load List</button>
         </div>
         <table id="attendance-list-table">
@@ -135,13 +152,12 @@
         <button id="submit-btn" style="display:none; margin-top:20px; background:var(--accent)" onclick="submitAttendance()">Submit Today's Records</button>
     </div>
 
-    <!-- REPORT SECTION -->
     <div id="report-sec" class="section">
         <div class="no-print card">
             <h3>Filter & Search Report</h3>
             <label>Choose Date:</label>
             <input type="date" id="report-date-filter">
-            <input type="text" id="report-filter-class" placeholder="Class (e.g. Form 1A) - Optional">
+            <input type="text" id="report-filter-class" placeholder="Class View (e.g. Form IA) - Optional">
             <button onclick="loadReports()">Show Report</button>
             <button onclick="window.print()" style="background:#34495e">Print Report</button>
         </div>
@@ -156,7 +172,7 @@
                     <tr>
                         <th>Day & Date</th>
                         <th>Student Name</th>
-                        <th>Class</th>
+                        <th>Class View</th>
                         <th>Status</th>
                     </tr>
                 </thead>
@@ -186,7 +202,84 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    let currentSelectedClass = ""; // Inatunza darasa lililofunguliwa sasa hivi
+    let currentSelectedClass = "";
+    let systemCredentials = null;
+
+    // Hierarchy State Trackers: "classes" au "students"
+    let currentLevel = "classes"; 
+    let activeClassId = "";
+
+    // Msaada wa kusafisha majina ya madarasa (Form One A -> form1a, Form IA -> form1a)
+    function cleanClassName(className) {
+        if (!className) return "";
+        let clean = className.toLowerCase().replace(/\s+/g, '');
+        // Oanisha maneno ya kawaida "one" kwenda "1", au herufi ya Kirumi "i" kwenda "1"
+        clean = clean.replace(/one/g, '1');
+        clean = clean.replace(/formi(?![a-z])/g, 'form1'); // Kama ni Form I pekee
+        clean = clean.replace(/formia/g, 'form1a');
+        clean = clean.replace(/formib/g, 'form1b');
+        clean = clean.replace(/formic/g, 'form1c');
+        clean = clean.replace(/formid/g, 'form1d');
+        return clean;
+    }
+
+    // --- SECURITY SYSTEM ---
+    function checkSystemSecurity() {
+        db.ref('admin_credentials').once('value', snapshot => {
+            if(!snapshot.exists()) {
+                document.getElementById('setup-box').style.display = 'block';
+                document.getElementById('login-box').style.display = 'none';
+            } else {
+                systemCredentials = snapshot.val();
+                document.getElementById('setup-box').style.display = 'none';
+                document.getElementById('login-box').style.display = 'block';
+            }
+        });
+    }
+
+    function handleInitialSetup() {
+        const user = document.getElementById('setup-username').value.trim();
+        const pass = document.getElementById('setup-password').value;
+        const conf = document.getElementById('setup-confirm').value;
+
+        if(!user || !pass) return alert("All fields are mandatory!");
+        if(pass !== conf) return alert("Passwords do not match!");
+
+        db.ref('admin_credentials').set({ username: user, password: pass }).then(() => {
+            alert("Administrative account created successfully!");
+            location.reload();
+        });
+    }
+
+    function handleLogin() {
+        const user = document.getElementById('login-username').value.trim();
+        const pass = document.getElementById('login-password').value;
+
+        if(systemCredentials && user === systemCredentials.username && pass === systemCredentials.password) {
+            document.getElementById('auth-overlay').style.display = 'none';
+        } else {
+            alert("Access Denied: Invalid Administrative Credentials.");
+        }
+    }
+
+    function changePassword() {
+        const oldPass = document.getElementById('chg-old-pass').value;
+        const newPass = document.getElementById('chg-new-pass').value;
+
+        if(!oldPass || !newPass) return alert("Please fill password configuration updates!");
+        
+        db.ref('admin_credentials').once('value', snapshot => {
+            const current = snapshot.val();
+            if(oldPass !== current.password) {
+                alert("Verification Failed: Old password does not match registry.");
+            } else {
+                db.ref('admin_credentials/password').set(newPass).then(() => {
+                    alert("Credentials altered and secured successfully. System will reload.");
+                    location.reload();
+                });
+            }
+        });
+    }
 
     function getFormattedDate(dateObj = new Date()) {
         const options = { weekday: 'long' };
@@ -202,7 +295,6 @@
         
         if(e) e.target.classList.add('active');
         else {
-            // Kama tab imebadilishwa na mfumo (sio kubonyezwa), weka active kwenye tab husika
             document.querySelectorAll('.tab').forEach(t => {
                 if(t.innerText.includes("TEACHER") && id === 'teacher-sec') t.classList.add('active');
                 if(t.innerText.includes("ADMIN") && id === 'admin-sec') t.classList.add('active');
@@ -210,59 +302,114 @@
         }
         
         if(id === 'teacher-sec') document.getElementById('today-date-display').innerText = "Date: " + getFormattedDate();
-        if(id === 'db-sec') loadStudentDatabase();
+        if(id === 'db-sec') {
+            currentLevel = "classes";
+            loadStudentDatabase();
+        }
     }
 
-    // --- STUDENT MANAGEMENT (ADD / EDIT / DELETE) ---
-    function addSingleStudent() {
-        const name = document.getElementById('adm-name').value;
-        const id = document.getElementById('adm-id').value;
-        const cls = document.getElementById('adm-class').value;
-        const editId = document.getElementById('edit-mode-id').value;
-
-        if(name && id && cls) {
-            if(editId && editId !== id) {
-                db.ref('students/' + editId).remove();
-            }
+    // --- HIERARCHICAL DATABASE EXPLORER TREE ---
+    function loadStudentDatabase() {
+        const header = document.getElementById('db-header');
+        const body = document.getElementById('db-body');
+        const breadcrumbs = document.getElementById('db-breadcrumbs');
+        body.innerHTML = '';
+        
+        if(currentLevel === "classes") {
+            breadcrumbs.style.display = "none";
+            header.innerHTML = `<tr><th>Class / Stream (Mikondo)</th><th>Available Actions</th></tr>`;
             
-            db.ref('students/' + id).set({ name, class: cls }).then(() => {
-                alert("Success!");
-                cancelEdit();
-                if(document.getElementById('db-sec').classList.contains('active-section')) loadStudentDatabase();
+            db.ref('students').once('value', snapshot => {
+                if(!snapshot.exists()) {
+                    body.innerHTML = `<tr><td colspan="2" style="text-align:center;">No Student Records found.</td></tr>`;
+                    return;
+                }
+                snapshot.forEach(child => {
+                    let className = child.key;
+                    body.innerHTML += `<tr>
+                        <td>📁 Class Stream: <strong>${className.toUpperCase()}</strong></td>
+                        <td>
+                            <button class="btn-open" onclick="traverseToStudents('${className}')">Open Class</button>
+                            <button class="btn-delete" onclick="deleteStructure('class', '${className}')">Delete Class</button>
+                        </td>
+                    </tr>`;
+                });
+            });
+        } 
+        else if(currentLevel === "students") {
+            breadcrumbs.style.display = "block";
+            breadcrumbs.innerHTML = `<span onclick="currentLevel='classes'; loadStudentDatabase();">Root Database</span> &gt; ${activeClassId.toUpperCase()}`;
+            header.innerHTML = `<tr><th>Serial No (ID)</th><th>Full Student Name</th><th>Class & Stream</th><th>Modifications</th></tr>`;
+            
+            db.ref(`students/${activeClassId}`).once('value', snapshot => {
+                snapshot.forEach(child => {
+                    let data = child.val();
+                    body.innerHTML += `<tr>
+                        <td>${data.id}</td>
+                        <td>${data.name}</td>
+                        <td>${data.class.toUpperCase()}</td>
+                        <td>
+                            <button class="btn-edit" onclick="startEdit('${data.id}', '${data.name}', '${data.class}')">Edit</button>
+                            <button class="btn-delete" onclick="deleteStructure('student', '${data.id}')">Remove</button>
+                        </td>
+                    </tr>`;
+                });
             });
         }
     }
 
-    function loadStudentDatabase() {
-        const filter = document.getElementById('db-class-filter').value.toLowerCase();
-        db.ref('students').once('value', snapshot => {
-            const body = document.getElementById('db-body');
-            body.innerHTML = '';
-            snapshot.forEach(child => {
-                const data = child.val();
-                if(!filter || data.class.toLowerCase().includes(filter)) {
-                    body.innerHTML += `<tr>
-                        <td>${child.key}</td>
-                        <td>${data.name}</td>
-                        <td>${data.class}</td>
-                        <td>
-                            <button class="btn-edit" onclick="startEdit('${child.key}', '${data.name}', '${data.class}')">Edit</button>
-                            <button class="btn-delete" onclick="deleteStudent('${child.key}')">Remove</button>
-                        </td>
-                    </tr>`;
-                }
-            });
+    function traverseToStudents(classId) { activeClassId = classId; currentLevel = "students"; loadStudentDatabase(); }
+
+    // --- INTERACTIVE DATABASE CLEANER ---
+    function deleteStructure(type, targetKey) {
+        if(!confirm(`Action Control: Are you sure you want to completely erase [${targetKey.toUpperCase()}]?`)) return;
+
+        if(type === 'class') {
+            db.ref(`students/${targetKey}`).remove().then(() => loadStudentDatabase());
+        } else if(type === 'student') {
+            db.ref(`students/${activeClassId}/${targetKey}`).remove().then(() => loadStudentDatabase());
+        }
+    }
+
+    // --- INDIVIDUAL MANAGEMENT ENGINE ---
+    function addSingleStudent() {
+        const id = document.getElementById('adm-id').value.trim();
+        const name = document.getElementById('adm-name').value.trim();
+        const rawClass = document.getElementById('adm-class').value.trim();
+        const editId = document.getElementById('edit-mode-id').value;
+
+        if(!id || !name || !rawClass) {
+            return alert("Serial No (ID), Full Name, and Class are completely mandatory!");
+        }
+
+        // Tunatengeneza path nzuri kwenye Firebase inayojitenga kulingana na mikondo
+        const classNode = rawClass.toLowerCase().replace(/\s+/g, '_'); 
+
+        if(editId) {
+            // Kama tulibadilisha darasa wakati wa kuedit, futa lile la zamani kwanza
+            db.ref(`students/${activeClassId}/${editId}`).remove();
+        }
+        
+        db.ref(`students/${classNode}/${id}`).set({
+            id: id, 
+            name: name, 
+            class: rawClass
+        }).then(() => {
+            alert("Student Record Synchronized Successfully!");
+            cancelEdit();
+            currentLevel = "classes";
+            switchTab('db-sec');
         });
     }
 
     function startEdit(id, name, cls) {
         switchTab('admin-sec');
-        document.getElementById('add-edit-title').innerText = "Edit Student";
+        document.getElementById('add-edit-title').innerText = "Modify Registry Record";
         document.getElementById('edit-mode-id').value = id;
         document.getElementById('adm-id').value = id;
         document.getElementById('adm-name').value = name;
         document.getElementById('adm-class').value = cls;
-        document.getElementById('save-btn').innerText = "Update Records";
+        document.getElementById('save-btn').innerText = "Update Structural Profile";
         document.getElementById('cancel-edit').style.display = 'block';
     }
 
@@ -272,84 +419,93 @@
         document.getElementById('adm-id').value = '';
         document.getElementById('adm-name').value = '';
         document.getElementById('adm-class').value = '';
-        document.getElementById('save-btn').innerText = "Save Student";
+        document.getElementById('save-btn').innerText = "Save Student Records";
         document.getElementById('cancel-edit').style.display = 'none';
     }
 
-    function deleteStudent(id) {
-        if(confirm("Are you sure you want to remove this student?")) {
-            db.ref('students/' + id).remove().then(() => loadStudentDatabase());
+    // --- SEARCH/FILTER FOR VIEW TABLES ---
+    function filterCurrentTable() {
+        let input = document.getElementById('db-search').value.toLowerCase();
+        let rows = document.getElementById('db-body').getElementsByTagName('tr');
+        
+        for (let row of rows) {
+            let text = row.textContent.toLowerCase();
+            row.style.display = text.includes(input) ? "" : "none";
         }
     }
 
-    // --- IMPORT / LINK GENERATOR ---
-    function handleFileUpload() {
-        const file = document.getElementById('csv-file').files[0];
-        if(!file) return alert("Select file");
-        Papa.parse(file, {
-            complete: function(results) {
-                results.data.forEach(row => {
-                    if(row[1]) db.ref('students/' + row[1]).set({ name: row[0], class: row[2] });
-                });
-                alert("Import Success!");
-            }
-        });
-    }
-
+    // --- SHARED LINKS GENERATOR ---
     function createShareLink() {
-        const cls = document.getElementById('target-class').value;
-        if(!cls) return alert("Tafadhali ingiza jina la darasa");
+        const cls = document.getElementById('target-class').value.trim();
+        if(!cls) return alert("Please specify target structural view combination code!");
         const baseUrl = window.location.href.split('?')[0];
         const fullLink = `${baseUrl}?class=${encodeURIComponent(cls)}`;
-        document.getElementById('link-display').innerHTML = `Link: <a href="${fullLink}" target="_blank">${fullLink}</a>`;
+        document.getElementById('link-display').innerHTML = `Shared Registry Link: <a href="${fullLink}" target="_blank">${fullLink}</a>`;
     }
 
-    // --- TEACHER ENTRY ---
+    // --- TEACHER ENTRY DISPATCHER (CASE-INSENSITIVE & FLEXIBLE) ---
     let tempAttendance = {};
     let studentNames = {};
 
     function loadClassForTeacher(forcedClass = null) {
-        const cls = forcedClass || document.getElementById('t-class-search').value;
+        const cls = forcedClass || document.getElementById('t-class-search').value.trim();
         if(!cls) return;
-        currentSelectedClass = cls; // Tunatunza darasa lililochaguliwa hapa
+        currentSelectedClass = cls;
 
-        db.ref('students').orderByChild('class').equalTo(cls).once('value', snapshot => {
-            const body = document.getElementById('attendance-body');
-            body.innerHTML = '';
-            
-            if(!snapshot.exists()){
-                body.innerHTML = '<tr><td colspan="2" style="text-align:center; color:red;">No students found in this class.</td></tr>';
-                document.getElementById('submit-btn').style.display = 'none';
-                return;
-            }
+        const body = document.getElementById('attendance-body');
+        body.innerHTML = '';
+        let matchFound = false;
 
-            snapshot.forEach(child => {
-                studentNames[child.key] = child.val().name;
-                body.innerHTML += `<tr>
-                    <td>${child.val().name}</td>
-                    <td>
-                        <button class="btn-p" onclick="mark('${child.key}','Present',this)">P</button>
-                        <button class="btn-a" onclick="mark('${child.key}','Absent',this)">A</button>
-                        <button class="btn-r" onclick="mark('${child.key}','Permission',this)">R</button>
-                    </td>
-                </tr>`;
+        let searchCleaned = cleanClassName(cls);
+
+        db.ref('students').once('value', snapshot => {
+            snapshot.forEach(classSnap => {
+                let dbClassCleaned = cleanClassName(classSnap.key);
+                let dbOriginalClassCleaned = "";
+                
+                // Angalia pia kama jina asilia la darasa lililoingizwa linaendana
+                classSnap.forEach(stdSnap => {
+                    let sample = stdSnap.val();
+                    if(sample && sample.class) {
+                        dbOriginalClassCleaned = cleanClassName(sample.class);
+                    }
+                });
+
+                // Kama inafanana kwa namna yoyote ile (Form One A == Form IA)
+                if(dbClassCleaned === searchCleaned || dbOriginalClassCleaned === searchCleaned || dbClassCleaned.includes(searchCleaned) || searchCleaned.includes(dbClassCleaned)) {
+                    classSnap.forEach(stdSnap => {
+                        let std = stdSnap.val();
+                        matchFound = true;
+                        studentNames[std.id] = std.name;
+                        body.innerHTML += `<tr>
+                            <td><strong>${std.name}</strong> (ID: ${std.id} - ${std.class.toUpperCase()})</td>
+                            <td>
+                                <button class="btn-p" onclick="mark('${std.id}','Present',this)">P</button>
+                                <button class="btn-a" onclick="mark('${std.id}','Absent',this)">A</button>
+                                <button class="btn-r" onclick="mark('${std.id}','Permission',this)">R</button>
+                            </td>
+                        </tr>`;
+                    });
+                }
             });
-            document.getElementById('submit-btn').style.display = 'block';
+
+            if(!matchFound) {
+                body.innerHTML = '<tr><td colspan="2" style="text-align:center; color:red;">No student profiles mapped inside class directory.</td></tr>';
+                document.getElementById('submit-btn').style.display = 'none';
+            } else {
+                document.getElementById('submit-btn').style.display = 'block';
+            }
         });
     }
 
     function mark(id, status, btn) {
         tempAttendance[id] = status;
-        // Ondoa kwanza class ya 'selected' kwenye vitufe vyote vya mstari huo
         btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('selected'));
-        // Weka class ya 'selected' kwenye kile tu kilichobonyezwa
         btn.classList.add('selected');
     }
 
     function submitAttendance() {
-        if(Object.keys(tempAttendance).length === 0) {
-            return alert("Tafadhali weka mahudhurio kwa wanafunzi kwanza kabla ya kusubmit.");
-        }
+        if(Object.keys(tempAttendance).length === 0) return alert("Apply evaluation logs matrix before submission!");
 
         const today = new Date();
         const dateKey = today.toISOString().split('T')[0];
@@ -360,40 +516,39 @@
             updates[`/attendance/${dateKey}/${id}`] = { 
                 status: tempAttendance[id], 
                 class: currentSelectedClass,
-                name: studentNames[id] || "Unknown",
+                name: studentNames[id] || "Unknown Student Profile",
                 fullDateLabel: dayLabel
             };
         }
         db.ref().update(updates).then(() => { 
-            alert("Attendance Submitted Successfully!"); 
+            alert("Daily Attendance Session Uploaded Successfully!"); 
             location.reload(); 
-        }).catch(err => {
-            alert("Error saving data: " + err.message);
         });
     }
 
-    // --- REPORTS ---
+    // --- MONITORING SYSTEM REPORTS ---
     function loadReports() {
         const selectedDate = document.getElementById('report-date-filter').value;
-        const filterClass = document.getElementById('report-filter-class').value;
-        if(!selectedDate) return alert("Select date");
+        const filterClass = cleanClassName(document.getElementById('report-filter-class').value.trim());
+        if(!selectedDate) return alert("Select baseline operational target date!");
 
-        document.getElementById('report-meta-info').innerText = `Date: ${selectedDate} | Class: ${filterClass || "All"}`;
+        document.getElementById('report-meta-info').innerText = `Target Date Profile: ${selectedDate} | Directory View: ${document.getElementById('report-filter-class').value || "Complete System View"}`;
         
         db.ref('attendance/' + selectedDate).once('value', snapshot => {
             const body = document.getElementById('report-body');
             body.innerHTML = '';
             if(!snapshot.exists()) {
-                body.innerHTML = '<tr><td colspan="4" style="text-align:center">No records found for this date.</td></tr>';
+                body.innerHTML = '<tr><td colspan="4" style="text-align:center">No records compiled inside database registry matching parameters.</td></tr>';
                 return;
             }
             snapshot.forEach(stdSnap => {
                 const data = stdSnap.val();
-                if(!filterClass || (data.class && data.class.toLowerCase() === filterClass.toLowerCase())) {
+                let matchClassCleaned = cleanClassName(data.class);
+                if(!filterClass || matchClassCleaned.includes(filterClass) || filterClass.includes(matchClassCleaned)) {
                     body.innerHTML += `<tr>
                         <td>${data.fullDateLabel || selectedDate}</td>
                         <td>${data.name}</td>
-                        <td>${data.class || '-'}</td>
+                        <td>${data.class.toUpperCase() || '-'}</td>
                         <td class="status-${data.status}">${data.status}</td>
                     </tr>`;
                 }
@@ -401,16 +556,19 @@
         });
     }
 
+    // ON SYSTEM STARTUP
     window.onload = () => {
+        checkSystemSecurity();
         const params = new URLSearchParams(window.location.search);
         const sharedClass = params.get('class');
         document.getElementById('report-date-filter').value = new Date().toISOString().split('T')[0];
 
         if(sharedClass) {
+            document.getElementById('auth-overlay').style.display = 'none';
             document.getElementById('main-nav').style.display = 'none';
             document.getElementById('class-selector-div').style.display = 'none';
             switchTab('teacher-sec');
-            document.getElementById('teacher-title').innerText = "Attendance Registry: " + sharedClass;
+            document.getElementById('teacher-title').innerText = "Attendance Registry Workspace: " + sharedClass.toUpperCase();
             loadClassForTeacher(sharedClass);
         }
     };
